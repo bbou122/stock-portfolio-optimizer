@@ -40,5 +40,5 @@ Deployed on Streamlit Cloud in < 60 seconds.
 Currently searching for work
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue)](https://www.linkedin.com/in/the-braden-bourgeois/)
-[![Hits](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fstock-portfolio-optimizer.streamlit.app&count_bg=%232ECC71&title_bg=%23555555)](https://hits.seeyoufarm.com)
+
 
