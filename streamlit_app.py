@@ -152,15 +152,31 @@ with tab2:
 with tab3:
     st.subheader("Efficient Frontier — 10,000 Random Portfolios")
 
+    # Beautiful explanation box
+    st.markdown("""
+    <div style="background-color: #1e293b; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6; margin-bottom: 25px;">
+    <h4 style="color: #60a5fa; margin-top:0;">What is the Efficient Frontier?</h4>
+    <ul style="color: #e2e8f0; line-height: 1.7;">
+        <li><strong>Every dot</strong> = a possible portfolio made from your selected stocks (10,000 random combinations)</li>
+        <li><strong>Up & Left is better</strong>: Higher return with lower risk</li>
+        <li><strong>Red star</strong> = The <strong>best possible portfolio</strong> (Maximum Sharpe Ratio)</li>
+        <li><strong>Green circle</strong> = The safest portfolio (Minimum Volatility)</li>
+        <li>Portfolios below the curve are <strong>sub-optimal</strong> — you can always do better</li>
+    </ul>
+    <p style="color: #94a3b8; font-size: 0.95em; margin-bottom:0;">
+    The "frontier" is the upper edge — these are the only portfolios worth considering.
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # The actual chart (unchanged)
     np.random.seed(42)
     num_portfolios = 10000
     results = np.zeros((3, num_portfolios))
-    weights_record = []
 
     for i in range(num_portfolios):
         w = np.random.random(len(tickers))
         w /= w.sum()
-        weights_record.append(w)
         ret, vol, sr = portfolio_performance(w, returns[tickers], returns[tickers].cov())
         results[0,i] = ret
         results[1,i] = vol
@@ -172,14 +188,12 @@ with tab3:
         mode='markers',
         marker=dict(color=results[2,:], colorscale='Viridis', size=6,
                     colorbar=dict(title="Sharpe Ratio"), showscale=True),
-        name="Random Portfolios",
-        text=[f"Sharpe: {s:.2f}" for s in results[2,:]],
-        hoverinfo="text"
+        name="Random Portfolios"
     ))
 
     fig.add_trace(go.Scatter(x=[max_sharpe_vol], y=[max_sharpe_ret],
                              mode='markers', marker=dict(color='red', size=16, symbol='star'),
-                             name=f"Max Sharpe (Best)"))
+                             name="Max Sharpe (Best)"))
     fig.add_trace(go.Scatter(x=[min_vol_vol], y=[min_vol_ret],
                              mode='markers', marker=dict(color='lime', size=14, symbol='circle'),
                              name="Min Volatility"))
@@ -189,11 +203,12 @@ with tab3:
                                  name="S&P 500"))
 
     fig.update_layout(
-        title="Efficient Frontier — Higher Sharpe = Better",
+        title="Efficient Frontier — The Science of 'Best Possible' Portfolios",
         xaxis_title="Annual Risk (Volatility)",
         yaxis_title="Annual Return",
         template="plotly_dark",
-        height=600
+        height=650,
+        hovermode="closest"
     )
     st.plotly_chart(fig, use_container_width=True)
 
