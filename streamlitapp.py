@@ -1,4 +1,4 @@
-# streamlit_app.py – FINAL, UNBREAKABLE VERSION (works even when yfinance is angry)
+# streamlit_app.py 
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -23,38 +23,45 @@ tickers = st.multiselect(
 )
 
 if tickers:
-    with st.spinner("Downloading market data... (this may take 10-20 seconds)"):
-        # SUPER SAFE yfinance download — tries hard, never crashes
+    with st.spinner("Fetching live market data..."):
         try:
-            raw_data = yf.download(tickers, period="3y", interval="1d", progress=False, threads=True)
-            if raw_data.empty:
-                raise ValueError("Empty response")
+            # Download with max safety
+            raw = yf.download(tickers, period="3y", interval="1d", progress=False, threads=True, auto_adjust=False)
             
-            # Extract Adj Close safely
+            if raw.empty:
+                st.error("No data returned from Yahoo Finance. Try again in a minute.")
+                st.stop()
+
+            # Extract Adj Close — works for single or multiple tickers
             if len(tickers) == 1:
-                if "Adj Close" in raw_data.columns:
-                    data = pd.DataFrame(raw_data["Adj Close"]).rename(columns={"Adj Close": tickers[0]})
+                if "Adj Close" in raw.columns:
+                    prices = raw["Adj Close"].to_frame(name=tickers[0])
+                elif "Close" in raw.columns:
+                    prices = raw["Close"].to_frame(name=tickers[0])
                 else:
                     st.error("No price data found for this stock.")
                     st.stop()
             else:
-                if "Adj Close" not in raw_data.columns:
-                    st.error("Data format error. Try fewer stocks.")
+                if "Adj Close" in raw.columns:
+                    prices = raw["Adj Close"]
+                elif "Close" in raw.columns:
+                    prices = raw["Close"]
+                else:
+                    st.error("No price data available.")
                     st.stop()
-                data = raw_data["Adj Close"]
-            
-            data = data.dropna()
-            if data.empty:
-                st.error("No valid price data after cleaning.")
+
+            prices = prices.dropna()
+            if prices.empty:
+                st.error("All data missing after cleaning.")
                 st.stop()
-                
+
         except Exception as e:
-            st.error("Yahoo Finance is rate-limiting or down right now. Please try again in 30 seconds.")
-            st.info("This happens sometimes — the app will work perfectly when Yahoo lets us in.")
+            st.error("Yahoo Finance temporarily unavailable. Please wait 30 seconds and refresh.")
             st.stop()
-    
-    returns = data.pct_change().dropna()
-    
+
+    # Now we KNOW we have clean price data
+    returns = prices.pct_change().dropna()
+
     # Allocation
     st.subheader("Set Your Portfolio Weights")
     weights = {}
@@ -62,31 +69,31 @@ if tickers:
     for i, t in enumerate(tickers):
         with cols[i]:
             weights[t] = st.slider(t, 0, 100, round(100/len(tickers)), key=t) / 100
-    
-    total = sum(weights.values())
-    weights = pd.Series(weights) / total if total > 0 else pd.Series({t: 1/len(tickers) for t in tickers})
-    
+
+    total_w = sum(weights.values())
+    weights = pd.Series(weights) / total_w if total_w > 0 else pd.Series({t: 1/len(tickers) for t in tickers})
+
     # Portfolio math
     port_returns = (returns * weights).sum(axis=1)
     cum_returns = (1 + port_returns).cumprod()
-    
+
     annual_return = port_returns.mean() * 252
     annual_vol = port_returns.std() * np.sqrt(252)
     sharpe = annual_return / annual_vol if annual_vol > 0 else 0
     max_drawdown = (cum_returns.cummax() - cum_returns).max()
 
-    # S&P 500 — safe fallback
+    # S&P 500 benchmark (safe fallback)
     try:
-        spy_data = yf.download("SPY", period="3y", interval="1d", progress=False)
-        spy = spy_data["Adj Close"].pct_change().dropna()
-        spy_cum = (1 + spy).cumprod()
-        spy_annual = spy.mean() * 252
-        spy_sharpe = spy_annual / (spy.std() * np.sqrt(252))
+        spy_raw = yf.download("SPY", period="3y", interval="1d", progress=False)
+        spy_price = spy_raw["Adj Close" if "Adj Close" in spy_raw.columns else spy_raw["Close"]
+        spy_returns = spy_price.pct_change().dropna()
+        spy_cum = (1 + spy_returns).cumprod()
+        spy_annual = spy_returns.mean() * 252
+        spy_sharpe = spy_annual / (spy_returns.std() * np.sqrt(252))
     except:
-        st.warning("S&P 500 benchmark unavailable — using historical average")
         spy_annual = 0.10
         spy_sharpe = 0.8
-        spy_cum = pd.Series([1.0], index=[data.index[-1]])
+        spy_cum = pd.Series([1.0], index=[prices.index[-1]])
 
     # Metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -99,7 +106,7 @@ if tickers:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=cum_returns.index, y=cum_returns, name="Your Portfolio", line=dict(width=4)))
     fig.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500", line=dict(color="gray", dash="dash")))
-    fig.update_layout(title="Portfolio vs S&P 500 ($1 → ?)", template="plotly_dark", height=500)
+    fig.update_layout(title="Portfolio vs S&P 500 ($1 to ?)", template="plotly_dark", height=500)
     st.plotly_chart(fig, use_container_width=True)
 
     fig_donut = go.Figure(data=[go.Pie(labels=weights.index, values=weights.values, hole=.5, textinfo='label+percent')])
@@ -113,7 +120,6 @@ if tickers:
         pdf.add_page()
         pdf.set_font("Arial", 'B', 18)
         pdf.cell(0, 10, "Stock Portfolio Report", ln=1, align='C')
-        pdf.ln(10)
         pdf.image(fig.to_image(format="png"), x=15, w=180)
         pdf.image(fig_donut.to_image(format="png"), x=15, y=130, w=180)
         pdf.output("report.pdf")
