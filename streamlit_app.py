@@ -229,7 +229,7 @@ with tab3:
         fig.add_trace(go.Scatter(
             x=[spy_vol], y=[spy_ret],
             mode='markers',
-            marker=dict(color='white', size=12, symbol='x-thick'),
+            marker=dict(color='white', size=12, symbol='x', line=dict(width=3, color='white')),
             name="S&P 500",
             hovertemplate=spy_hover + "<extra></extra>"
         ))
