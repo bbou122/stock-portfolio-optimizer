@@ -14,7 +14,7 @@ Live Stock Portfolio Optimizer — 3 Years Real Market Data
 </div>
 """, unsafe_allow_html=True)
 
-# Load data from your CSV 
+# Load data from CSV in your repo
 @st.cache_data
 def load_data():
     url = "https://raw.githubusercontent.com/bbou122/stock-portfolio-optimizer/main/stock_data.csv"
@@ -28,7 +28,6 @@ st.markdown("**Select any stocks from 10 major companies + S&P 500**")
 tickers = st.multiselect("Choose your stocks", prices.columns.tolist(), default=["AAPL", "NVDA", "JPM"])
 
 if tickers:
-    # Allocation
     st.subheader("Portfolio Allocation")
     weights = {}
     cols = st.columns(len(tickers))
@@ -60,36 +59,34 @@ if tickers:
     col3.metric("Sharpe Ratio", f"{sharpe:.2f}", f"{sharpe - spy_sharpe:+.2f}")
     col4.metric("Max Drawdown", f"-{max_drawdown:.1%}")
 
-    # Equity curve (Plotly)
+    # Charts
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=cum_returns.index, y=cum_returns, name="Your Portfolio", line=dict(width=4)))
     fig.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500", line=dict(color="gray", dash="dash")))
     fig.update_layout(title="Portfolio vs S&P 500", template="plotly_dark", height=500)
     st.plotly_chart(fig, use_container_width=True)
 
-    # Allocation pie (Plotly)
     fig_pie = go.Figure(data=[go.Pie(labels=weights.index, values=weights.values, hole=.5, textinfo='label+percent')])
     fig_pie.update_layout(title="Portfolio Allocation", height=400)
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # PDF Report — uses matplotlib 
+    # PDF Report 
     @st.cache_data
     def make_pdf():
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", 'B', 16)
+        pdf.set_font("Arial", 'B', 18)
         pdf.cell(0, 10, "Stock Portfolio Report", ln=1, align='C')
-        pdf.set_font("Arial", size=12)
         pdf.ln(10)
 
-        # Save Plotly charts as PNG via matplotlib 
-        fig.write_image("chart1.png")
-        fig_pie.write_image("chart2.png")
+        # Save charts as PNG using matplotlib backend
+        fig.savefig("chart1.png", bbox_inches='tight', dpi=200)
+        fig_pie.savefig("chart2.png", bbox_inches='tight', dpi=200)
 
         pdf.image("chart1.png", x=15, w=180)
-        pdf.image("chart2.png", x=15, y=120, w=180)
+        pdf.image("chart2.png", x=15, y=130, w=180)
 
-        # Clean up
+        # Cleanup
         for f in ["chart1.png", "chart2.png"]:
             if os.path.exists(f):
                 os.remove(f)
