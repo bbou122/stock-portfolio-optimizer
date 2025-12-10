@@ -80,7 +80,7 @@ min_vol_ret, min_vol_vol, min_vol_sr = portfolio_performance(min_vol_weights, re
 equal_weights = np.array([1/len(tickers)] * len(tickers))
 eq_ret, eq_vol, eq_sr = portfolio_performance(equal_weights, returns[tickers], returns[tickers].cov())
 
-# S&P 500 benchmark
+# S&P 500 benchmark (use if available)
 spy_ret = returns["SPY"].mean() * 252 if "SPY" in returns.columns else 0.10
 spy_vol = returns["SPY"].std() * np.sqrt(252) if "SPY" in returns.columns else 0.15
 spy_sr = (spy_ret - risk_free_rate) / spy_vol if spy_vol > 0 else 0
@@ -90,13 +90,14 @@ tab1, tab2, tab3 = st.tabs(["Manual Portfolio", "Optimized Portfolios", "Efficie
 
 with tab1:
     st.subheader("Build Your Own Portfolio")
-    weights = {}
+    weights_dict = {}
     cols = st.columns(len(tickers))
     for i, tick in enumerate(tickers):
         with cols[i]:
-            weights[tick] = st.slider(tick, 0, 100, 100//len(tickers), key=f"manual_{tick}") /  # noqa: E501
-    weights = pd.Series(weights) / 100
-    weights /= weights.sum()
+            weights_dict[tick] = st.slider(tick, 0, 100, 100//len(tickers), key=f"manual_{tick}") / 100
+    weights = pd.Series(weights_dict)
+    # Normalize to sum to 1
+    weights = weights / weights.sum()
 
     ret, vol, sr = portfolio_performance(weights.values, returns[tickers], returns[tickers].cov())
     cum_ret = (1 + (returns[tickers] * weights).sum(axis=1)).cumprod()
@@ -108,12 +109,17 @@ with tab1:
     col4.metric("vs S&P 500", "Your Pick" if sr > spy_sr else "Underperform")
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(y=cum_ret, name="Your Portfolio", line=dict(width=4)))
+    fig.add_trace(go.Scatter(x=cum_ret.index, y=cum_ret, name="Your Portfolio", line=dict(width=4)))
     if "SPY" in prices.columns:
         spy_cum = (1 + returns["SPY"]).cumprod()
-        fig.add_trace(go.Scatter(y=spy_cum, name="S&P 500", line=dict(color="gray", dash="dot")))
+        fig.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500", line=dict(color="gray", dash="dot")))
     fig.update_layout(title="$1 → Final Value", template="plotly_dark", height=500)
     st.plotly_chart(fig, use_container_width=True)
+
+    # Donut chart for manual weights
+    fig_donut = go.Figure(data=[go.Pie(labels=weights.index, values=weights.values, hole=0.5, textinfo='label+percent')])
+    fig_donut.update_layout(title="Your Portfolio Allocation", height=400)
+    st.plotly_chart(fig_donut, use_container_width=True)
 
 with tab2:
     st.success("Maximum Sharpe Ratio Portfolio Found!")
@@ -147,7 +153,7 @@ with tab3:
     st.subheader("Efficient Frontier — 10,000 Random Portfolios")
 
     np.random.seed(42)
-    num_portfolios = 50
+    num_portfolios = 10000
     results = np.zeros((3, num_portfolios))
     weights_record = []
 
@@ -191,4 +197,5 @@ with tab3:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-st.caption("Built with love by Braden Bourgeois • Enhanced with real portfolio science")
+st.markdown("---")
+st.caption("Built by Braden Bourgeois • Masters in Analytics")
