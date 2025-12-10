@@ -1,1 +1,7 @@
-
+streamlit==1.38.0
+yfinance
+pandas
+numpy
+plotly
+kaleido
+fpdf2
