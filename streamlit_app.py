@@ -4,15 +4,15 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.optimize import minimize
 
-st.set_page_config(page_title="Stock Portfolio Optimizer", layout="wide")
+st.set_page_config(page_title="Stock Portfolio Optimizer Pro", layout="wide")
 
+# Custom header
 st.markdown("""
-<div style="background: linear-gradient(90deg, #1E3A8A, #3B82F6); padding: 20px; border-radius: 15px; text-align: center; color: white; font-size: 28px; font-weight: bold; margin-bottom: 30px; box-shadow: 0 6px 12px rgba(0,0,0,0.2);">
-Stock Portfolio Optimizer — 3 Years Real Market Data
+<div style="background: linear-gradient(90deg, #1E3A8A, #3B82F6); padding: 25px; border-radius: 15px; text-align: center; color: white; font-size: 32px; font-weight: bold; margin-bottom: 30px; box-shadow: 0 8px 20px rgba(0,0,0,0.3);">
+    Stock Portfolio Optimizer — 3 Years Real Market Data
 </div>
 """, unsafe_allow_html=True)
 
-# Load data from CSV in your repo (instant, no API calls)
 @st.cache_data
 def load_data():
     url = "https://raw.githubusercontent.com/bbou122/stock-portfolio-optimizer/main/stock_data.csv"
@@ -22,152 +22,173 @@ def load_data():
 prices = load_data()
 returns = prices.pct_change().dropna()
 
-st.markdown("Select any stocks from 10 major companies + S&P 500")
-tickers = st.multiselect("Choose your stocks", prices.columns.tolist(), default=["AAPL", "NVDA", "JPM"])
+st.markdown("### Select stocks to build and optimize your portfolio")
+tickers = st.multiselect(
+    "Choose stocks (includes S&P 500 as 'SPY')",
+    options=prices.columns.tolist(),
+    default=["AAPL", "NVDA", "MSFT", "JPM", "SPY"]
+)
 
-if tickers:
-    # Function to compute negative Sharpe ratio
-    def neg_sharpe(weights, mean_returns, cov_matrix):
-        port_ret = np.dot(weights, mean_returns) * 252
-        port_vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix * 252, weights)))
-        sharpe = port_ret / port_vol if port_vol > 0 else 0
-        return -sharpe
+if len(tickers) < 2:
+    st.warning("Please select at least 2 stocks to enable optimization.")
+    st.stop()
 
-    # Optimization function
-    def optimize_portfolio(tickers, returns):
-        mean_returns = returns[tickers].mean()
-        cov_matrix = returns[tickers].cov()
-        
-        num_assets = len(tickers)
-        args = (mean_returns, cov_matrix)
-        
-        constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
-        bounds = tuple((0, 1) for _ in range(num_assets))
-        
-        initial_weights = np.array([1. / num_assets] * num_assets)
-        
-        result = minimize(neg_sharpe, initial_weights, args=args,
-                          method='SLSQP', bounds=bounds, constraints=constraints)
-        
-        return result.x if result.success else initial_weights
+# Risk-free rate slider
+risk_free_rate = st.slider("Risk-Free Rate (for Sharpe Ratio)", 0.0, 10.0, 3.0, 0.1) / 100
 
-    # Tabs for user-defined and optimized portfolios
-    tab1, tab2 = st.tabs(["User-Defined Portfolio", "Optimized Portfolio"])
+# Optimization functions
+def portfolio_performance(weights, returns, cov_matrix):
+    port_return = np.dot(weights, returns.mean()) * 252
+    port_std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix * 252, weights)))
+    sharpe = (port_return - risk_free_rate) / port_std if port_std > 0 else 0
+    return port_return, port_std, sharpe
 
-    with tab1:
-        st.subheader("Set Your Portfolio Weights")
-        weights = {}
-        cols = st.columns(len(tickers))
-        for i, t in enumerate(tickers):
-            with cols[i]:
-                weights[t] = st.slider(t, 0, 100, round(100 / len(tickers)), key=f"user_{t}") / 100
-        
-        total = sum(weights.values())
-        if total > 0:
-            weights = pd.Series(weights) / total
-        else:
-            weights = pd.Series({t: 1 / len(tickers) for t in tickers})
-        
-        # Portfolio math
-        port_returns = (returns[tickers] * weights).sum(axis=1)
-        cum_returns = (1 + port_returns).cumprod()
-        
-        annual_return = port_returns.mean() * 252
-        annual_vol = port_returns.std() * np.sqrt(252)
-        sharpe = annual_return / annual_vol if annual_vol > 0 else 0
-        
-        # Corrected max drawdown calculation
-        drawdowns = (cum_returns / cum_returns.cummax()) - 1
-        max_drawdown = -drawdowns.min()
+def neg_sharpe_ratio(weights, returns, cov_matrix):
+    _, _, sharpe = portfolio_performance(weights, returns, cov_matrix)
+    return -sharpe
 
-        # S&P 500 from same data
-        spy_returns = returns["SPY"]
-        spy_cum = (1 + spy_returns).cumprod()
-        spy_annual = spy_returns.mean() * 252
-        spy_vol = spy_returns.std() * np.sqrt(252)
-        spy_sharpe = spy_annual / spy_vol if spy_vol > 0 else 0
+def min_volatility(weights, returns, cov_matrix):
+    _, port_std, _ = portfolio_performance(weights, returns, cov_matrix)
+    return port_std
 
-        # Metrics
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Annual Return", f"{annual_return:.1%}", f"{annual_return - spy_annual:+.1%}")
-        col2.metric("Volatility", f"{annual_vol:.1%}")
-        col3.metric("Sharpe Ratio", f"{sharpe:.2f}", f"{sharpe - spy_sharpe:+.2f}")
-        col4.metric("Max Drawdown", f"-{max_drawdown:.1%}")
+def optimize_portfolio(tickers, returns, objective='sharpe'):
+    mean_returns = returns[tickers].mean()
+    cov_matrix = returns[tickers].cov()
+    num_assets = len(tickers)
+    args = (returns[tickers], cov_matrix)
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bounds = tuple((0, 1) for _ in range(num_assets))
+    initial = np.array([1/num_assets] * num_assets)
 
-        # Comparison vs S&P 500 (equity curve)
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=cum_returns.index, y=cum_returns, name="Your Portfolio", line=dict(width=4)))
-        fig.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500", line=dict(color="gray", dash="dash")))
-        fig.update_layout(title="Portfolio vs S&P 500 ($1 → ?)", template="plotly_dark", height=500)
-        st.plotly_chart(fig, use_container_width=True)
+    if objective == 'sharpe':
+        result = minimize(neg_sharpe_ratio, initial, args=args, method='SLSQP',
+                          bounds=bounds, constraints=constraints)
+    else:  # min volatility
+        result = minimize(min_volatility, initial, args=args, method='SLSQP',
+                          bounds=bounds, constraints=constraints)
+    return result.x if result.success else initial
 
-        # Portfolio distribution (donut chart)
-        fig_donut = go.Figure(data=[go.Pie(labels=weights.index, values=weights.values, hole=.5, textinfo='label+percent')])
-        fig_donut.update_layout(title="Portfolio Allocation", height=400)
-        st.plotly_chart(fig_donut, use_container_width=True)
+# Run optimizations
+max_sharpe_weights = optimize_portfolio(tickers, returns, 'sharpe')
+min_vol_weights = optimize_portfolio(tickers, returns, 'volatility')
 
-        # Summary Section
-        st.subheader("Portfolio Summary")
-        st.info(f"""
-        • **Your Annual Return**: {annual_return:.1%} (vs S&P 500: {spy_annual:.1%})  
-        • **Risk Level**: Volatility {annual_vol:.1%}, Max Drawdown -{max_drawdown:.1%}  
-        • **Performance Score**: Sharpe Ratio {sharpe:.2f} (higher = better return per risk)  
-        • **Suggestion**: If Sharpe < 1.0, add more diversification (e.g., bonds or ETFs)
-        """)
+# Calculate performances
+max_sharpe_ret, max_sharpe_vol, max_sharpe_sr = portfolio_performance(max_sharpe_weights, returns[tickers], returns[tickers].cov())
+min_vol_ret, min_vol_vol, min_vol_sr = portfolio_performance(min_vol_weights, returns[tickers], returns[tickers].cov())
 
-    with tab2:
-        st.subheader("Optimized Portfolio (Max Sharpe Ratio)")
-        opt_weights_array = optimize_portfolio(tickers, returns)
-        opt_weights = pd.Series(opt_weights_array, index=tickers)
-        
-        # Display optimized weights
-        st.write("Optimized Weights:")
-        for t, w in opt_weights.items():
-            st.write(f"{t}: {w:.2%}")
+# Equal weight
+equal_weights = np.array([1/len(tickers)] * len(tickers))
+eq_ret, eq_vol, eq_sr = portfolio_performance(equal_weights, returns[tickers], returns[tickers].cov())
 
-        # Portfolio math for optimized
-        port_returns_opt = (returns[tickers] * opt_weights).sum(axis=1)
-        cum_returns_opt = (1 + port_returns_opt).cumprod()
-        
-        annual_return_opt = port_returns_opt.mean() * 252
-        annual_vol_opt = port_returns_opt.std() * np.sqrt(252)
-        sharpe_opt = annual_return_opt / annual_vol_opt if annual_vol_opt > 0 else 0
-        
-        # Corrected max drawdown calculation
-        drawdowns_opt = (cum_returns_opt / cum_returns_opt.cummax()) - 1
-        max_drawdown_opt = -drawdowns_opt.min()
+# S&P 500 benchmark
+spy_ret = returns["SPY"].mean() * 252 if "SPY" in returns.columns else 0.10
+spy_vol = returns["SPY"].std() * np.sqrt(252) if "SPY" in returns.columns else 0.15
+spy_sr = (spy_ret - risk_free_rate) / spy_vol if spy_vol > 0 else 0
 
-        # Metrics
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Annual Return", f"{annual_return_opt:.1%}", f"{annual_return_opt - spy_annual:+.1%}")
-        col2.metric("Volatility", f"{annual_vol_opt:.1%}")
-        col3.metric("Sharpe Ratio", f"{sharpe_opt:.2f}", f"{sharpe_opt - spy_sharpe:+.2f}")
-        col4.metric("Max Drawdown", f"-{max_drawdown_opt:.1%}")
+# Tabs
+tab1, tab2, tab3 = st.tabs(["Manual Portfolio", "Optimized Portfolios", "Efficient Frontier"])
 
-        # Comparison vs S&P 500 (equity curve)
-        fig_opt = go.Figure()
-        fig_opt.add_trace(go.Scatter(x=cum_returns_opt.index, y=cum_returns_opt, name="Optimized Portfolio", line=dict(width=4)))
-        fig_opt.add_trace(go.Scatter(x=spy_cum.index, y=spy_cum, name="S&P 500", line=dict(color="gray", dash="dash")))
-        fig_opt.update_layout(title="Optimized Portfolio vs S&P 500 ($1 → ?)", template="plotly_dark", height=500)
-        st.plotly_chart(fig_opt, use_container_width=True)
+with tab1:
+    st.subheader("Build Your Own Portfolio")
+    weights = {}
+    cols = st.columns(len(tickers))
+    for i, tick in enumerate(tickers):
+        with cols[i]:
+            weights[tick] = st.slider(tick, 0, 100, 100//len(tickers), key=f"manual_{tick}") /  # noqa: E501
+    weights = pd.Series(weights) / 100
+    weights /= weights.sum()
 
-        # Portfolio distribution (donut chart)
-        fig_donut_opt = go.Figure(data=[go.Pie(labels=opt_weights.index, values=opt_weights.values, hole=.5, textinfo='label+percent')])
-        fig_donut_opt.update_layout(title="Optimized Portfolio Allocation", height=400)
-        st.plotly_chart(fig_donut_opt, use_container_width=True)
+    ret, vol, sr = portfolio_performance(weights.values, returns[tickers], returns[tickers].cov())
+    cum_ret = (1 + (returns[tickers] * weights).sum(axis=1)).cumprod()
 
-        # Summary Section
-        st.subheader("Optimized Portfolio Summary")
-        st.info(f"""
-        • **Optimized Annual Return**: {annual_return_opt:.1%} (vs S&P 500: {spy_annual:.1%})  
-        • **Risk Level**: Volatility {annual_vol_opt:.1%}, Max Drawdown -{max_drawdown_opt:.1%}  
-        • **Performance Score**: Sharpe Ratio {sharpe_opt:.2f} (higher = better return per risk)  
-        • **Suggestion**: If Sharpe < 1.0, add more diversification (e.g., bonds or ETFs)
-        """)
-else:
-    st.info("Select stocks to begin")
-    st.balloons()
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Return", f"{ret:.1%}", f"{ret - spy_ret:+.1%}")
+    col2.metric("Volatility", f"{vol:.1%}")
+    col3.metric("Sharpe Ratio", f"{sr:.2f}", f"{sr - spy_sr:+.2f}")
+    col4.metric("vs S&P 500", "Your Pick" if sr > spy_sr else "Underperform")
 
-st.markdown("---")
-st.caption("Built quickly by Braden Bourgeois • Master’s in Analytics")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(y=cum_ret, name="Your Portfolio", line=dict(width=4)))
+    if "SPY" in prices.columns:
+        spy_cum = (1 + returns["SPY"]).cumprod()
+        fig.add_trace(go.Scatter(y=spy_cum, name="S&P 500", line=dict(color="gray", dash="dot")))
+    fig.update_layout(title="$1 → Final Value", template="plotly_dark", height=500)
+    st.plotly_chart(fig, use_container_width=True)
 
+with tab2:
+    st.success("Maximum Sharpe Ratio Portfolio Found!")
+    
+    # Comparison table
+    comparison = pd.DataFrame({
+        "Strategy": ["Max Sharpe", "Min Volatility", "Equal Weight", "S&P 500"],
+        "Return": [max_sharpe_ret, min_vol_ret, eq_ret, spy_ret],
+        "Volatility": [max_sharpe_vol, min_vol_vol, eq_vol, spy_vol],
+        "Sharpe Ratio": [max_sharpe_sr, min_vol_sr, eq_sr, spy_sr]
+    }).round(4)
+    comparison["Return"] = (comparison["Return"]*100).round(2).astype(str) + "%"
+    comparison["Volatility"] = (comparison["Volatility"]*100).round(2).astype(str) + "%"
+    st.dataframe(comparison, use_container_width=True)
+
+    # Show best weights
+    best_weights = pd.Series(max_sharpe_weights.round(4), index=tickers)
+    best_weights = best_weights[best_weights > 0.01]  # hide tiny weights
+    st.bar_chart(best_weights * 100)
+
+    # Download button
+    csv = pd.Series(max_sharpe_weights, index=tickers).to_csv(header=["Weight"])
+    st.download_button(
+        "Download Max Sharpe Portfolio as CSV",
+        data=csv.encode(),
+        file_name="optimized_portfolio_max_sharpe.csv",
+        mime="text/csv"
+    )
+
+with tab3:
+    st.subheader("Efficient Frontier — 10,000 Random Portfolios")
+
+    np.random.seed(42)
+    num_portfolios = 50
+    results = np.zeros((3, num_portfolios))
+    weights_record = []
+
+    for i in range(num_portfolios):
+        w = np.random.random(len(tickers))
+        w /= w.sum()
+        weights_record.append(w)
+        ret, vol, sr = portfolio_performance(w, returns[tickers], returns[tickers].cov())
+        results[0,i] = ret
+        results[1,i] = vol
+        results[2,i] = sr
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=results[1,:], y=results[0,:],
+        mode='markers',
+        marker=dict(color=results[2,:], colorscale='Viridis', size=6,
+                    colorbar=dict(title="Sharpe Ratio"), showscale=True),
+        name="Random Portfolios",
+        text=[f"Sharpe: {s:.2f}" for s in results[2,:]],
+        hoverinfo="text"
+    ))
+
+    fig.add_trace(go.Scatter(x=[max_sharpe_vol], y=[max_sharpe_ret],
+                             mode='markers', marker=dict(color='red', size=16, symbol='star'),
+                             name=f"Max Sharpe (Best)"))
+    fig.add_trace(go.Scatter(x=[min_vol_vol], y=[min_vol_ret],
+                             mode='markers', marker=dict(color='lime', size=14, symbol='circle'),
+                             name="Min Volatility"))
+    if "SPY" in prices.columns:
+        fig.add_trace(go.Scatter(x=[spy_vol], y=[spy_ret],
+                                 mode='markers', marker=dict(color='white', size=12, symbol='x'),
+                                 name="S&P 500"))
+
+    fig.update_layout(
+        title="Efficient Frontier — Higher Sharpe = Better",
+        xaxis_title="Annual Risk (Volatility)",
+        yaxis_title="Annual Return",
+        template="plotly_dark",
+        height=600
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+st.caption("Built with love by Braden Bourgeois • Enhanced with real portfolio science")
