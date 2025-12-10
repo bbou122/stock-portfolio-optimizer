@@ -152,58 +152,90 @@ with tab2:
 with tab3:
     st.subheader("Efficient Frontier — 10,000 Random Portfolios")
 
-    # Beautiful explanation box
+    # Explanation
     st.markdown("""
     <div style="background-color: #1e293b; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6; margin-bottom: 25px;">
-    <h4 style="color: #60a5fa; margin-top:0;">What is the Efficient Frontier?</h4>
+    <h4 style="color: #60a5fa; margin-top:0;">What You're Looking At</h4>
     <ul style="color: #e2e8f0; line-height: 1.7;">
-        <li><strong>Every dot</strong> = a possible portfolio made from your selected stocks (10,000 random combinations)</li>
-        <li><strong>Up & Left is better</strong>: Higher return with lower risk</li>
-        <li><strong>Red star</strong> = The <strong>best possible portfolio</strong> (Maximum Sharpe Ratio)</li>
-        <li><strong>Green circle</strong> = The safest portfolio (Minimum Volatility)</li>
-        <li>Portfolios below the curve are <strong>sub-optimal</strong> — you can always do better</li>
+        <li>Every dot = a random portfolio from your selected stocks</li>
+        <li><strong>Red star</strong> = The single best portfolio (Maximum Sharpe Ratio)</li>
+        <li><strong>Hover the red star</strong> → see the exact % allocation!</li>
+        <li><strong>Green circle</strong> = Lowest possible risk portfolio</li>
     </ul>
-    <p style="color: #94a3b8; font-size: 0.95em; margin-bottom:0;">
-    The "frontier" is the upper edge — these are the only portfolios worth considering.
-    </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # The actual chart (unchanged)
+    # Run the 10,000 simulations
     np.random.seed(42)
     num_portfolios = 10000
     results = np.zeros((3, num_portfolios))
+    weight_records = []
 
     for i in range(num_portfolios):
         w = np.random.random(len(tickers))
         w /= w.sum()
+        weight_records.append(w)
         ret, vol, sr = portfolio_performance(w, returns[tickers], returns[tickers].cov())
         results[0,i] = ret
         results[1,i] = vol
         results[2,i] = sr
 
+    # Create hover text for the MAX SHARPE portfolio (the one we actually optimized)
+    max_sharpe_hover = "<br>".join([
+        f"{tick}: {w:6.1%}" for tick, w in zip(tickers, max_sharpe_weights) if w > 0.005
+    ])
+    max_sharpe_hover = f"<b>MAX SHARPE PORTFOLIO</b><br>Return: {max_sharpe_ret:.1%}<br>Risk: {max_sharpe_vol:.1%}<br>Sharpe: {max_sharpe_sr:.2f}<br><br><b>Weights:</b><br>{max_sharpe_hover}"
+
+    # Hover text for Min Volatility
+    min_vol_hover = "<br>".join([
+        f"{tick}: {w:6.1%}" for tick, w in zip(tickers, min_vol_weights) if w > 0.005
+    ])
+    min_vol_hover = f"<b>MIN VOLATILITY</b><br>Return: {min_vol_ret:.1%}<br>Risk: {min_vol_vol:.1%}<br><br><b>Weights:</b><br>{min_vol_hover}"
+
+    # Plot
     fig = go.Figure()
+
+    # Random clouds
     fig.add_trace(go.Scatter(
         x=results[1,:], y=results[0,:],
         mode='markers',
-        marker=dict(color=results[2,:], colorscale='Viridis', size=6,
-                    colorbar=dict(title="Sharpe Ratio"), showscale=True),
-        name="Random Portfolios"
+        marker=dict(color=results[2,:], colorscale='Viridis', size=5, opacity=0.6,
+                    colorbar=dict(title="Sharpe Ratio")),
+        name="Random Portfolios",
+        hoverinfo="skip"
     ))
 
-    fig.add_trace(go.Scatter(x=[max_sharpe_vol], y=[max_sharpe_ret],
-                             mode='markers', marker=dict(color='red', size=16, symbol='star'),
-                             name="Max Sharpe (Best)"))
-    fig.add_trace(go.Scatter(x=[min_vol_vol], y=[min_vol_ret],
-                             mode='markers', marker=dict(color='lime', size=14, symbol='circle'),
-                             name="Min Volatility"))
+    # Max Sharpe — now with rich hover!
+    fig.add_trace(go.Scatter(
+        x=[max_sharpe_vol], y=[max_sharpe_ret],
+        mode='markers',
+        marker=dict(color='red', size=18, symbol='star', line=dict(width=3, color='white')),
+        name="Max Sharpe Portfolio",
+        hovertemplate=max_sharpe_hover + "<extra></extra>"
+    ))
+
+    # Min Volatility
+    fig.add_trace(go.Scatter(
+        x=[min_vol_vol], y=[min_vol_ret],
+        mode='markers',
+        marker=dict(color='lime', size=15, symbol='circle', line=dict(width=2, color='white')),
+        name="Min Volatility",
+        hovertemplate=min_vol_hover + "<extra></extra>"
+    ))
+
+    # S&P 500 if available
     if "SPY" in prices.columns:
-        fig.add_trace(go.Scatter(x=[spy_vol], y=[spy_ret],
-                                 mode='markers', marker=dict(color='white', size=12, symbol='x'),
-                                 name="S&P 500"))
+        spy_hover = f"S&P 500<br>Return: {spy_ret:.1%}<br>Risk: {spy_vol:.1%}<br>Sharpe: {spy_sr:.2f}"
+        fig.add_trace(go.Scatter(
+            x=[spy_vol], y=[spy_ret],
+            mode='markers',
+            marker=dict(color='white', size=12, symbol='x-thick'),
+            name="S&P 500",
+            hovertemplate=spy_hover + "<extra></extra>"
+        ))
 
     fig.update_layout(
-        title="Efficient Frontier — The Science of 'Best Possible' Portfolios",
+        title="Efficient Frontier — Hover the Red Star for Exact Weights",
         xaxis_title="Annual Risk (Volatility)",
         yaxis_title="Annual Return",
         template="plotly_dark",
@@ -211,6 +243,16 @@ with tab3:
         hovermode="closest"
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    # Bonus: Show the exact Max Sharpe weights below the chart too
+    with st.expander("View Exact Max Sharpe Portfolio Weights", expanded=True):
+        weights_df = pd.DataFrame({
+            "Stock": tickers,
+            "Weight": np.round(max_sharpe_weights, 4)
+        })
+        weights_df["Weight %"] = (weights_df["Weight"] * 100).round(1).astype(str) + "%"
+        weights_df = weights_df[weights_df["Weight"] > 0.005].sort_values("Weight", ascending=False)
+        st.dataframe(weights_df[["Stock", "Weight %"]], use_container_width=True)
 
 st.markdown("---")
 st.caption("Built by Braden Bourgeois • Masters in Analytics")
