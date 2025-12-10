@@ -1,4 +1,4 @@
-# stock-portfolio-optimizer – Braden Bourgeois
+# stock-portfolio-optimizer 
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -11,8 +11,7 @@ st.set_page_config(page_title="Stock Portfolio Optimizer", layout="wide")
 
 # banner
 st.markdown("""
-<div style="background: linear-gradient(90deg, #1
-#1E3A8A, #3B82F6); padding: 20px; border-radius: 15px; text-align: center; color: white; font-size: 28px; font-weight: bold; margin-bottom: 30px; box-shadow: 0 6px 12px rgba(0,0,0,0.2);">
+<div style="background: linear-gradient(90deg, #1E3A8A, #3B82F6); padding: 20px; border-radius: 15px; text-align: center; color: white; font-size: 28px; font-weight: bold; margin-bottom: 30px; box-shadow: 0 6px 12px rgba(0,0,0,0.2);">
 Live Stock Portfolio Optimizer — Real Prices • Real Risk • Real Alpha
 </div>
 """, unsafe_allow_html=True)
@@ -28,7 +27,13 @@ tickers = st.multiselect(
 
 if tickers:
     with st.spinner("Downloading latest market data..."):
-        data = yf.download(tickers, period="3y", interval="1d")['Adj Close'].dropna()
+        data = yf.download(tickers, period="3y", interval="1d")
+        # FIXED: Handle multi-index for Adj Close (works for single or multiple tickers)
+        if isinstance(data.columns, pd.MultiIndex):
+            data = data['Adj Close']
+        else:
+            data = data[['Adj Close']]
+        data = data.dropna()
     
     returns = data.pct_change().dropna()
     
@@ -55,19 +60,19 @@ if tickers:
     sharpe = annual_return / annual_vol if annual_vol > 0 else 0
     max_drawdown = (cum_returns.cummax() - cum_returns).max()
 
-    # SPY benchmark
-    spy = yf.download("SPY", period="3y", interval="1d")['Adj Close'].pct_change().dropna()
+    # S&P 500 benchmark
+    spy = yf.download("SPY", period="3y", interval="1d")
+    spy = spy['Adj Close'].pct_change().dropna()
     spy_cum = (1 + spy).cumprod()
     spy_annual_return = spy.mean() * 252
     spy_sharpe = spy_annual_return / (spy.std() * np.sqrt(252))
 
-    # Display metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # Metrics
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Annual Return", f"{annual_return:.1%}", f"{annual_return - spy_annual_return:+.1%}")
     col2.metric("Volatility", f"{annual_vol:.1%}")
     col3.metric("Sharpe Ratio", f"{sharpe:.2f}", f"{sharpe - spy_sharpe:+.2f}")
     col4.metric("Max Drawdown", f"-{max_drawdown:.1%}")
-    col5.metric("vs S&P 500 Sharpe", f"{spy_sharpe:.2f}")
 
     # Equity curve
     fig = go.Figure()
@@ -105,6 +110,9 @@ if tickers:
 else:
     st.info("Pick at least one stock to begin")
     st.balloons()
+
+st.markdown("---")
+st.caption("Built in 1 hour by Braden Bourgeois • Master’s in Analytics • Open to FP&A, Quant, or Investment Analyst roles")
 
 st.markdown("---")
 st.caption("Built in 1 hour by Braden Bourgeois • Master’s in Analytics • Open to FP&A, Quant, or Investment Analyst roles")
