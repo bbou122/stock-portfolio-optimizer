@@ -112,5 +112,5 @@ else:
     st.balloons()
 
 st.markdown("---")
-st.caption("Built in 1 hour by Braden Bourgeois • Master’s in Analytics 
+st.caption("Built in 1 hour by Braden Bourgeois • Master’s in Analytics)
 
