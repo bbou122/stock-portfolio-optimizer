@@ -1,7 +1,7 @@
 # Live Stock Portfolio Optimizer & Backtester  
 **Real-time prices • Interactive allocation • Sharpe, Drawdown, S&P 500 benchmark • One-click PDF report**
 
-Live App → https://stock-portfolio-optimizer.streamlit.app/
+Live App → https://stock-portfolio-optimizer-k6yzxdfi5ejurhtopmugfm.streamlit.app/
 
 Drag sliders to build any stock portfolio. Instantly see:
 - Annual return & volatility
